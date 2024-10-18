@@ -39,4 +39,12 @@
 
 ## 使用
 
-<!-- 插件开发者自行填写插件使用说明 -->
+直接发送`站点关键词：id`就行
+
+**p站未登录状态，部分图片有权限限制，自定义cookie以模拟登录**
+
+![image](https://github.com/user-attachments/assets/ef0bd3f7-37df-426e-afab-8d63c31dd9d4)
+
+**演示效果**
+
+![image](https://github.com/user-attachments/assets/06743788-e261-464e-aa69-092f5513bfd2)
