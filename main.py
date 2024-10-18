@@ -6,7 +6,7 @@ import re
 from mirai import Image, Plain
 
 @register(name="AntiHotlinkImageFetcher", description="根据关键词输入，自动处理防盗链图片链接，转为图片输出",
-          version="1.0",
+          version="1.2",
           author="BiFangKNT")
 class AntiHotlinkImageFetcherPlugin(Plugin):
 
