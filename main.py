@@ -1,80 +1,95 @@
 import json
 import requests
-from lxml import html
+from urllib.parse import urlparse
 from pkg.plugin.models import *
 from pkg.plugin.host import EventContext, PluginHost
+import re
 from mirai import Image, Plain
 import os
-import re
 
-
-@register(name="AntiHotlinkImageFetcher", description="根据关键词输入，自动处理防盗链图片链接，转为图片输出", version="1.0",
+@register(name="AntiHotlinkImageFetcher", description="根据关键词输入，自动处理防盗链图片链接，转为图片输出",
+          version="1.0",
           author="BiFangKNT")
 class AntiHotlinkImageFetcherPlugin(Plugin):
 
     def __init__(self, plugin_host: PluginHost):
         super().__init__(plugin_host)
-        # 获取当前插件所在目录的绝对路径
-        plugin_dir = os.path.dirname(os.path.abspath(__file__))
-        # 构造 config.json 文件的路径，确保从插件目录中加载
-        config_path = os.path.join(plugin_dir, 'config.json')
-        # 读取配置文件
-        with open(config_path, 'r', encoding='utf-8') as f:
-            self.config = json.load(f)
+        self.config = self.load_config()
+        self.url_pattern = re.compile(r'[a-zA-Z0-9]+[:：]\d+')
 
     @on(NormalMessageResponded)
-    def handle_message(self, event: EventContext, **kwargs):
-        user_message = kwargs['response_text']
-        # 检查是否符合关键词输入格式，如：pixiv:10086 或 pixiv：10086
-        if re.match(r'^[^\s]+[:：]\d+$', user_message):  # 这里是正确的正则表达式
-            site_keyword, pid = re.split(r'[:：]', user_message, 1)
+    def optimize_message(self, event: EventContext, **kwargs):
+        original_message = kwargs['response_text']
+
+        # 如果正则表达式没有匹配成功，直接终止脚本执行
+        if not self.url_pattern.search(original_message):
+            return
+
+        optimized_message = self.convert_message(original_message)
+
+        if optimized_message:
+            event.add_return('reply', optimized_message)
+
+    def load_config(self):
+        plugin_dir = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.join(plugin_dir, 'config.json')
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def convert_message(self, message):
+        parts = []
+        last_end = 0
+
+        for match in self.url_pattern.finditer(message):
+            start, end = match.span()
+            if start > last_end:
+                parts.append(Plain(message[last_end:start]))
+
+            matched_text = match.group()
+            site_keyword, pid = re.split(r'[:：]', matched_text, 1)
             site_keyword = site_keyword.strip()
             pid = pid.strip()
 
-            # 根据关键词从 config 中找到对应站点的配置
-            if site_keyword in self.config:
-                site_config = self.config[site_keyword]
-                domain = site_config['domain']
-                url_suffix = site_config['url_suffix']
-                xpath = site_config['xpath']
-
-                # 构建图片 URL
-                full_url = f"https://{domain}{url_suffix}{pid}"
+            if site_keyword == "pixiv":
+                # 调用 Pixiv 图片获取函数
                 try:
-                    # 获取图片页面
-                    headers = {
-                        'Referer': f"https://{domain}",
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'
-                    }
-                    response = requests.get(full_url, headers=headers)
-                    response.raise_for_status()
-
-                    # 解析 HTML 并查找图片链接
-                    tree = html.fromstring(response.content)
-                    img_element = tree.xpath(xpath)
-                    if img_element and 'src' in img_element[0].attrib:
-                        img_url = img_element[0].attrib['src']
-
-                        # 如果图片链接是相对链接，补全为完整链接
-                        if img_url.startswith('//'):
-                            img_url = 'https:' + img_url
-
-                        # 使用图片 URL 发送图片
-                        event.add_return('reply', Image(url=img_url))
+                    image_url = self.fetch_pixiv_image_url(pid)
+                    if image_url:
+                        parts.append(Image(url=image_url))
                     else:
-                        # 如果找不到图片元素
-                        event.add_return('reply',
-                                         Plain(f"未找到指定的图片，检查 XPath 或者图片页面可能已变更。URL：{full_url}"))
-
-                except requests.RequestException as e:
-                    # 请求失败的处理
-                    event.add_return('reply', Plain(f"请求失败，错误信息：{str(e)}，URL：{full_url}"))
+                        parts.append(Plain(f"未找到图片 URL\n"))
+                except Exception:
+                    parts.append(Plain(f"链接无法访问，请检查 URL 是否正确。\n"))
+                    parts.append(Plain(matched_text))
             else:
-                # 如果配置文件中没有找到对应的站点
-                event.add_return('reply', Plain(f"未找到指定的站点配置：{site_keyword}"))
-        else:
-            # 如果输入格式不正确
-            event.add_return('reply', Plain("输入格式不正确，正确格式为：站点关键词：PID，例如 'pixiv：10086'"))
+                parts.append(Plain(f"未找到站点配置: {site_keyword}\n"))
+
+            last_end = end
+
+        if last_end < len(message):
+            parts.append(Plain(message[last_end:]))
+
+        return parts if parts else message
+
+    def fetch_pixiv_image_url(self, pid):
+        """根据 Pixiv 作品 ID 获取原始图片 URL"""
+        api_url = f"https://www.pixiv.net/ajax/illust/{pid}"
+        headers = {
+            'Referer': 'https://www.pixiv.net',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'
+        }
+
+        response = requests.get(api_url, headers=headers)
+        response.raise_for_status()
+
+        data = response.json()
+        # 从 JSON 数据中提取原始图片 URL
+        image_url = data['body']['urls']['original']
+
+        return image_url
 
     def __del__(self):
         pass
