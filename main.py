@@ -1,11 +1,9 @@
-import json
+# -*- coding: utf-8 -*-
 import requests
-from urllib.parse import urlparse
 from pkg.plugin.models import *
 from pkg.plugin.host import EventContext, PluginHost
 import re
 from mirai import Image, Plain
-import os
 
 @register(name="AntiHotlinkImageFetcher", description="根据关键词输入，自动处理防盗链图片链接，转为图片输出",
           version="1.0",
@@ -14,7 +12,6 @@ class AntiHotlinkImageFetcherPlugin(Plugin):
 
     def __init__(self, plugin_host: PluginHost):
         super().__init__(plugin_host)
-        self.config = self.load_config()
         self.url_pattern = re.compile(r'[a-zA-Z0-9]+[:：]\d+')
 
     @on(NormalMessageResponded)
@@ -29,15 +26,6 @@ class AntiHotlinkImageFetcherPlugin(Plugin):
 
         if optimized_message:
             event.add_return('reply', optimized_message)
-
-    def load_config(self):
-        plugin_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.join(plugin_dir, 'config.json')
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            return {}
 
     def convert_message(self, message):
         parts = []
@@ -77,19 +65,49 @@ class AntiHotlinkImageFetcherPlugin(Plugin):
     def fetch_pixiv_image_url(self, pid):
         """根据 Pixiv 作品 ID 获取原始图片 URL"""
         api_url = f"https://www.pixiv.net/ajax/illust/{pid}"
-        headers = {
+
+        headers = self.get_pixiv_headers()
+        cookies = self.get_pixiv_cookies()
+
+        try:
+            response = requests.get(api_url, headers=headers, cookies=cookies)
+            response.raise_for_status()  # 检查请求是否成功
+            data = response.json()
+
+            # 检查返回的 JSON 是否有正确的结构
+            if 'body' in data and 'urls' in data['body'] and 'original' in data['body']['urls']:
+                image_url = data['body']['urls']['original']
+                return image_url
+            else:
+                return None
+
+        except requests.RequestException as e:
+            print(f"网络请求失败: {str(e)}")
+            return None
+
+    def get_pixiv_headers(self):
+        """返回 Pixiv 请求的必要 Headers"""
+        return {
             'Referer': 'https://www.pixiv.net',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'
         }
 
-        response = requests.get(api_url, headers=headers)
-        response.raise_for_status()
+    def get_pixiv_cookies(self):
+        """
+        返回 Pixiv 请求的必要 Cookies，替换为你的实际 Cookies。
 
-        data = response.json()
-        # 从 JSON 数据中提取原始图片 URL
-        image_url = data['body']['urls']['original']
-
-        return image_url
+        获取方法:
+        1. 打开 Pixiv 网站并登录。
+        2. 打开浏览器的开发者工具 (F12)。
+        3. 刷新页面并在网络 (Network) 面板中筛选 "ajax" 请求。
+        4. 查找与 pid 相关的请求，查看该请求的 Cookies 并逐项复制。
+        """
+        return {
+            'PHPSESSID': '',  # 替换为实际的 PHPSESSID
+            '__cf_bm': '',  # 替换为你的实际值
+            'cf_clearance': '',  # 替换为你的实际值
+            'yuid_b': '',  # 替换为你的实际值
+        }
 
     def __del__(self):
         pass
