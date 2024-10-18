@@ -1,0 +1,7 @@
+{
+  "pixiv": {
+    "domain": "www.pixiv.net",
+    "url_suffix": "/artworks/",
+    "xpath": "/html/body/div[1]/div[2]/div/div[3]/div/div/div[1]/main/section/div[1]/div/figure/div[1]/div[1]/div/a/img"
+  }
+}
