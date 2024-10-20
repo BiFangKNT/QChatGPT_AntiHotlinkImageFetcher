@@ -130,3 +130,6 @@ dmypy.json
 .idea
 test.py
 main.py.bak
+plugins
+main.test.py
+main (1).py

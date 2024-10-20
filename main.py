@@ -1,31 +1,62 @@
 # -*- coding: utf-8 -*-
 import requests
-from pkg.plugin.models import *
-from pkg.plugin.host import EventContext, PluginHost
+from pkg.plugin.context import register, handler, llm_func, BasePlugin, APIHost, EventContext, mirai
+from pkg.plugin.events import PersonNormalMessageReceived, GroupNormalMessageReceived  # 导入两个事件类
 import re
-from mirai import Image, Plain
 
 @register(name="AntiHotlinkImageFetcher", description="根据关键词输入，自动处理防盗链图片链接，转为图片输出",
-          version="1.2",
+          version="1.3",
           author="BiFangKNT")
-class AntiHotlinkImageFetcherPlugin(Plugin):
+class AntiHotlinkImageFetcherPlugin(BasePlugin):
 
-    def __init__(self, plugin_host: PluginHost):
-        super().__init__(plugin_host)
-        self.url_pattern = re.compile(r'[a-zA-Z0-9]+[:：]\d+')
+    def __init__(self, host: APIHost):
+        super().__init__(host)
+        self.url_pattern = re.compile(r'^[a-zA-Z0-9]+[:：]\d+$')
 
-    @on(NormalMessageResponded)
-    def optimize_message(self, event: EventContext, **kwargs):
-        original_message = kwargs['response_text']
+    # 异步初始化
+    async def initialize(self):
+        pass
 
-        # 如果正则表达式没有匹配成功，直接终止脚本执行
-        if not self.url_pattern.search(original_message):
+    @handler(PersonNormalMessageReceived)
+    async def on_person_message(self, ctx: EventContext):
+        await self.optimize_message(ctx)
+
+    @handler(GroupNormalMessageReceived)
+    async def on_group_message(self, ctx: EventContext):
+        await self.optimize_message(ctx)
+
+    async def optimize_message(self, ctx: EventContext):
+        # 检查消息是否已经被处理过
+        if hasattr(ctx, 'message_processed'):
+            self.ap.logger.info("消息已被处理，跳过")
             return
 
-        optimized_message = self.convert_message(original_message)
+        msg = ctx.event.text_message
+
+        # 输出信息
+        self.ap.logger.info(f"反防盗链插件正在处理消息: {msg}")
+
+        # 如果正则表达式没有匹配成功，直接终止脚本执行
+        if not self.url_pattern.search(msg):
+            self.ap.logger.info("反防盗链插件：格式不匹配，不进行处理")
+            return
+
+        optimized_message = self.convert_message(msg)
 
         if optimized_message:
-            event.add_return('reply', optimized_message)
+            # 输出信息
+            self.ap.logger.info(f"处理后的消息: {optimized_message}")
+
+            # 回复消息
+            ctx.add_return('reply', optimized_message)
+
+            # 阻止该事件默认行为
+            ctx.prevent_default()
+
+            # 标记消息已被处理
+            setattr(ctx, 'message_processed', True)
+        else:
+            self.ap.logger.info("消息处理后为空，不进行回复")
 
     def convert_message(self, message):
         parts = []
@@ -34,7 +65,7 @@ class AntiHotlinkImageFetcherPlugin(Plugin):
         for match in self.url_pattern.finditer(message):
             start, end = match.span()
             if start > last_end:
-                parts.append(Plain(message[last_end:start]))
+                parts.append(mirai.Plain(message[last_end:start]))
 
             matched_text = match.group()
             site_keyword, pid = re.split(r'[:：]', matched_text, 1)
@@ -46,21 +77,25 @@ class AntiHotlinkImageFetcherPlugin(Plugin):
                 try:
                     image_url = self.fetch_pixiv_image_url(pid)
                     if image_url:
-                        parts.append(Image(url=image_url))
+                        parts.append(mirai.Image(url=image_url))
+                        self.ap.logger.info(f"成功获取Pixiv图片: {image_url}")
                     else:
-                        parts.append(Plain(f"未找到图片 URL\n"))
-                except Exception:
-                    parts.append(Plain(f"链接无法访问，请检查 URL 是否正确。\n"))
-                    parts.append(Plain(matched_text))
+                        parts.append(mirai.Plain(f"未找到图片 URL\n"))
+                        self.ap.logger.info(f"未找到Pixiv图片URL: {pid}")
+                except Exception as e:
+                    parts.append(mirai.Plain(f"链接无法访问，请检查 URL 是否正确。\n"))
+                    parts.append(mirai.Plain(matched_text))
+                    self.ap.logger.info(f"获取Pixiv图片失败: {str(e)}")
             else:
-                parts.append(Plain(f"未找到站点配置: {site_keyword}\n"))
+                parts.append(mirai.Plain(f"未找到站点配置: {site_keyword}\n"))
+                self.ap.logger.info(f"未找到站点配置: {site_keyword}")
 
             last_end = end
 
         if last_end < len(message):
-            parts.append(Plain(message[last_end:]))
+            parts.append(mirai.Plain(message[last_end:]))
 
-        return parts if parts else message
+        return parts if parts else None
 
     def fetch_pixiv_image_url(self, pid):
         """根据 Pixiv 作品 ID 获取原始图片 URL"""
@@ -82,7 +117,7 @@ class AntiHotlinkImageFetcherPlugin(Plugin):
                 return None
 
         except requests.RequestException as e:
-            print(f"网络请求失败: {str(e)}")
+            self.ap.logger.info(f"网络请求失败: {str(e)}")
             return None
 
     def get_pixiv_headers(self):
