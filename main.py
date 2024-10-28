@@ -18,18 +18,11 @@ class AntiHotlinkImageFetcherPlugin(BasePlugin):
         pass
 
     @handler(PersonNormalMessageReceived)
-    async def on_person_message(self, ctx: EventContext):
-        await self.optimize_message(ctx)
-
     @handler(GroupNormalMessageReceived)
-    async def on_group_message(self, ctx: EventContext):
+    async def on_message(self, ctx: EventContext):
         await self.optimize_message(ctx)
 
     async def optimize_message(self, ctx: EventContext):
-        # 检查消息是否已经被处理过
-        if hasattr(ctx, 'message_processed'):
-            self.ap.logger.info("消息已被处理，跳过")
-            return
 
         msg = ctx.event.text_message
 
@@ -53,8 +46,8 @@ class AntiHotlinkImageFetcherPlugin(BasePlugin):
             # 阻止该事件默认行为
             ctx.prevent_default()
 
-            # 标记消息已被处理
-            setattr(ctx, 'message_processed', True)
+            # 阻止后续插件执行
+            ctx.prevent_postorder()
         else:
             self.ap.logger.info("消息处理后为空，不进行回复")
 
