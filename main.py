@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 import requests
-from pkg.plugin.context import register, handler, llm_func, BasePlugin, APIHost, EventContext, mirai
+from pkg.plugin.context import register, handler, llm_func, BasePlugin, APIHost, EventContext
 from pkg.plugin.events import PersonNormalMessageReceived, GroupNormalMessageReceived  # 导入两个事件类
+import pkg.platform.types as platform_types
 import re
 
 @register(name="AntiHotlinkImageFetcher", description="根据关键词输入，自动处理防盗链图片链接，转为图片输出",
@@ -58,7 +59,7 @@ class AntiHotlinkImageFetcherPlugin(BasePlugin):
         for match in self.url_pattern.finditer(message):
             start, end = match.span()
             if start > last_end:
-                parts.append(mirai.Plain(message[last_end:start]))
+                parts.append(platform_types.Plain(message[last_end:start]))
 
             matched_text = match.group()
             site_keyword, pid = re.split(r'[:：]', matched_text, 1)
@@ -70,23 +71,23 @@ class AntiHotlinkImageFetcherPlugin(BasePlugin):
                 try:
                     image_url = self.fetch_pixiv_image_url(pid)
                     if image_url:
-                        parts.append(mirai.Image(url=image_url))
+                        parts.append(platform_types.Image(url=image_url))
                         self.ap.logger.info(f"成功获取Pixiv图片: {image_url}")
                     else:
-                        parts.append(mirai.Plain(f"未找到图片 URL\n"))
+                        parts.append(platform_types.Plain(f"未找到图片 URL\n"))
                         self.ap.logger.info(f"未找到Pixiv图片URL: {pid}")
                 except Exception as e:
-                    parts.append(mirai.Plain(f"链接无法访问，请检查 URL 是否正确。\n"))
-                    parts.append(mirai.Plain(matched_text))
+                    parts.append(platform_types.Plain(f"链接无法访问，请检查 URL 是否正确。\n"))
+                    parts.append(platform_types.Plain(matched_text))
                     self.ap.logger.info(f"获取Pixiv图片失败: {str(e)}")
             else:
-                parts.append(mirai.Plain(f"未找到站点配置: {site_keyword}\n"))
+                parts.append(platform_types.Plain(f"未找到站点配置: {site_keyword}\n"))
                 self.ap.logger.info(f"未找到站点配置: {site_keyword}")
 
             last_end = end
 
         if last_end < len(message):
-            parts.append(mirai.Plain(message[last_end:]))
+            parts.append(platform_types.Plain(message[last_end:]))
 
         return parts if parts else None
 
